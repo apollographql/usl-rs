@@ -56,7 +56,7 @@ etc.
 ```
 usl --plot example.csv 10 50 100 150 200 250 300
 
-USL parameters: σ=0.028168, κ=90.691376, λ=0.000104
+USL parameters: α=0.028168, β=0.000104, γ=90.691376
 	max throughput: 1882.421555, max concurrency: 96
 	contention constrained
         |                         ■   ●     × ●       ●                                 

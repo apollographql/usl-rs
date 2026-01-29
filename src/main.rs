@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, ValueHint};
+// use criterion::measurement;
 use plotlib::page::Page;
 use plotlib::repr::Plot;
 use plotlib::style::{PointMarker, PointStyle};
@@ -37,12 +38,13 @@ fn main() -> Result<()> {
         measurments.push(m);
     }
 
+
     let model = Model::build(&measurments);
-    println!("USL parameters: σ={:.6}, κ={:.6}, λ={:.6}", model.sigma, model.lambda, model.kappa);
+    println!("USL parameters: α={:.6}, β={:.6}, γ={:.6}", model.alpha, model.beta, model.gamma);
     println!(
         "\tmax throughput: {:.6}, max concurrency: {:.6}",
         model.max_throughput(),
-        model.max_concurrency()
+        model.max_concurrency(),
     );
     if model.is_contention_constrained() {
         println!("\tcontention constrained");
@@ -55,6 +57,7 @@ fn main() -> Result<()> {
     if opts.plot {
         let observed = measurments.iter().map(|m| (m.n, m.x)).collect::<Vec<(f64, f64)>>();
         let max_n = observed.iter().map(|&(n, _)| n).fold(0.0, f64::max);
+        let max_y = observed.iter().map(|&(_, y)| y).fold(0.0, f64::max);
         let observed =
             Plot::new(observed).point_style(PointStyle::new().marker(PointMarker::Square));
 
@@ -73,16 +76,17 @@ fn main() -> Result<()> {
         let extrapolated =
             Plot::new(extrapolated).point_style(PointStyle::new().marker(PointMarker::Cross));
 
+
         let v = ContinuousView::new()
             .add(observed)
             .add(predicted)
             .add(extrapolated)
             .x_range(0.0, max_n)
-            .y_range(0.0, model.max_throughput())
+            .y_range(0.0, max_y)
             .x_label("concurrency")
             .y_label("throughput");
 
-        println!("{}", Page::single(&v).dimensions(80, 20).to_text().unwrap());
+        println!("{}", Page::single(&v).dimensions(200, 20).to_text().unwrap());
     }
 
     for n in opts.predictions {

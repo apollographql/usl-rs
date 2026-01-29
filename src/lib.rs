@@ -72,7 +72,7 @@ impl Measurement {
     pub fn concurrency_and_latency(n: u32, r: Duration) -> Measurement {
         let n = n.into();
         let r = r.as_secs_f64();
-        Measurement { n, x: n / r, r } // L, λ=L/W, W
+        Measurement { n, x: n / r, r } // L, γ=L/W, W
     }
 
     /// Create a measurement of a system's throughput at a given level of concurrency. The latency
@@ -80,7 +80,7 @@ impl Measurement {
     #[must_use]
     pub fn concurrency_and_throughput(n: u32, x: f64) -> Measurement {
         let n = n.into();
-        Measurement { n, x, r: n / x } // L, λ, W=L/λ
+        Measurement { n, x, r: n / x } // L, γ, W=L/γ
     }
 
     /// Create a measurement of a system's latency at a given level of throughput. The concurrency
@@ -88,7 +88,7 @@ impl Measurement {
     #[must_use]
     pub fn throughput_and_latency(x: f64, r: Duration) -> Measurement {
         let r = r.as_secs_f64();
-        Measurement { n: x * r, x, r } // L=λW, W, λ
+        Measurement { n: x * r, x, r } // L=γW, γ, W
     }
 }
 
@@ -129,12 +129,12 @@ from_tuple!(f64, Duration, Measurement::throughput_and_latency);
 /// ```
 #[derive(Debug, Copy, Clone)]
 pub struct Model {
-    /// The model's coefficient of contention, σ.
-    pub sigma: f64,
-    /// The model's coefficient of crosstalk/coherency, κ.
-    pub kappa: f64,
-    /// The model's coefficient of performance, λ.
-    pub lambda: f64,
+    /// The model's coefficient of contention, α.
+    pub alpha: f64,
+    /// The model's coefficient of crosstalk/coherency, β.
+    pub beta: f64,
+    /// The model's coefficient of concurrency, γ.
+    pub gamma: f64,
 }
 
 /// The minimum number of measurements required to build a model.
@@ -143,9 +143,9 @@ pub const MIN_MEASUREMENTS: usize = 6;
 impl Model {
     /// Build a model whose parameters are generated from the given measurements.
     ///
-    /// Finds a set of coefficients for the equation `y = λx/(1+σ(x-1)+κx(x-1))` which best fit the
-    /// observed values using unconstrained least-squares regression. The resulting values for λ, κ,
-    /// and σ are the parameters of the returned model.
+    /// Finds a set of coefficients for the equation `y = γx/(1+α(x-1)+βx(x-1))` which best fit the
+    /// observed values using unconstrained least-squares regression. The resulting values for γ, β,
+    /// and α are the parameters of the returned model.
     #[must_use]
     pub fn build(measurements: &[Measurement]) -> Model {
         assert!(
@@ -158,7 +158,7 @@ impl Model {
         if let Err(err) = fitter.mpfit(&mut params, None, &Default::default()) {
             panic!("lma error: {}", err)
         }
-        Model { sigma: params[0], kappa: params[1], lambda: params[2] }
+        Model { alpha: params[0], beta: params[1], gamma: params[2] }
     }
 
     /// Calculate the expected throughput given a number of concurrent events, `X(N)`.
@@ -167,7 +167,7 @@ impl Model {
     #[must_use]
     pub fn throughput_at_concurrency(&self, n: u32) -> f64 {
         let n: f64 = n.into();
-        (self.lambda * n) / (1.0 + (self.sigma * (n - 1.0)) + (self.kappa * n * (n - 1.0)))
+        (self.gamma * n) / (1.0 + (self.alpha * (n - 1.0)) + (self.beta * n * (n - 1.0)))
     }
 
     /// Calculate the expected mean latency given a number of concurrent events, `R(N)`.
@@ -176,7 +176,7 @@ impl Model {
     #[must_use]
     pub fn latency_at_concurrency(&self, n: u32) -> f64 {
         let n: f64 = n.into();
-        (1.0 + (self.sigma * (n - 1.0)) + (self.kappa * n * (n - 1.0))) / self.lambda
+        (1.0 + (self.alpha * (n - 1.0)) + (self.beta * n * (n - 1.0))) / self.gamma
     }
 
     /// Calculate the maximum expected number of concurrent events the system can handle, `N{max}`.
@@ -184,7 +184,7 @@ impl Model {
     /// See "Practical Scalability Analysis with the Universal Scalability Law, Equation 4".
     #[must_use]
     pub fn max_concurrency(&self) -> u32 {
-        (((1.0 - self.sigma) / self.kappa).sqrt()).floor() as u32
+        (((1.0 - self.alpha) / self.beta).sqrt()).floor() as u32
     }
 
     /// Calculate the maximum expected throughput the system can handle, `X{max}`.
@@ -198,7 +198,7 @@ impl Model {
     /// See "Practical Scalability Analysis with the Universal Scalability Law, Equation 8".
     #[must_use]
     pub fn latency_at_throughput(&self, x: f64) -> f64 {
-        (self.sigma - 1.0) / (self.sigma * x - self.lambda)
+        (self.alpha - 1.0) / (self.alpha * x - self.gamma)
     }
 
     /// Calculate the expected throughput given a mean latency, `X(R)`.
@@ -207,13 +207,13 @@ impl Model {
     #[must_use]
     pub fn throughput_at_latency(&self, r: Duration) -> f64 {
         let r = r.as_secs_f64();
-        ((self.sigma.powi(2)
-            + self.kappa.powi(2)
-            + 2.0 * self.kappa * (2.0 * self.lambda * r + self.sigma - 2.0))
+        ((self.alpha.powi(2)
+            + self.beta.powi(2)
+            + 2.0 * self.beta * (2.0 * self.gamma * r + self.alpha - 2.0))
             .sqrt()
-            - self.kappa
-            + self.sigma)
-            / (2.0 * self.kappa * r)
+            - self.beta
+            + self.alpha)
+            / (2.0 * self.beta * r)
     }
 
     /// Calculate the expected number of concurrent events at a particular mean latency, `N(R)`.
@@ -222,12 +222,12 @@ impl Model {
     #[must_use]
     pub fn concurrency_at_latency(&self, r: Duration) -> f64 {
         let r = r.as_secs_f64();
-        (self.kappa - self.sigma
-            + (self.sigma.powi(2)
-                + self.kappa.powi(2)
-                + 2.0 * self.kappa * ((2.0 * self.lambda * r) + self.sigma - 2.0))
+        (self.beta - self.alpha
+            + (self.alpha.powi(2)
+                + self.beta.powi(2)
+                + 2.0 * self.beta * ((2.0 * self.gamma * r) + self.alpha - 2.0))
                 .sqrt())
-            / (2.0 * self.kappa)
+            / (2.0 * self.beta)
     }
 
     /// Calculate the expected number of concurrent events at a particular throughput, `N(X)`.
@@ -239,19 +239,19 @@ impl Model {
     /// Whether or not the system is constrained by contention effects.
     #[must_use]
     pub fn is_contention_constrained(&self) -> bool {
-        self.sigma > self.kappa
+        self.alpha > self.beta
     }
 
     /// Whether or not the system is constrained by coherency effects.
     #[must_use]
     pub fn is_coherency_constrained(&self) -> bool {
-        self.sigma < self.kappa
+        self.alpha < self.beta
     }
 
     /// Whether or not the system is linearly scalable.
     #[must_use]
     pub fn is_limitless(&self) -> bool {
-        relative_eq!(self.kappa, 0.0)
+        relative_eq!(self.beta, 0.0)
     }
 }
 
@@ -290,7 +290,7 @@ impl ModelFitter {
 
 impl MPFitter for ModelFitter {
     fn eval(&self, params: &[f64], deviates: &mut [f64]) -> MPResult<()> {
-        let model = Model { sigma: params[0], kappa: params[1], lambda: params[2] };
+        let model = Model { alpha: params[0], beta: params[1], gamma: params[2] };
         for (d, m) in deviates.iter_mut().zip(self.0.iter()) {
             *d = m.x - model.throughput_at_concurrency(m.n as u32);
         }
@@ -331,9 +331,9 @@ mod tests {
     fn build() {
         let model: Model = MEASUREMENTS.iter().collect();
 
-        assert_relative_eq!(model.sigma, 0.02671591, max_relative = ACCURACY);
-        assert_relative_eq!(model.kappa, 7.690945e-4, max_relative = ACCURACY);
-        assert_relative_eq!(model.lambda, 995.6486, max_relative = ACCURACY);
+        assert_relative_eq!(model.alpha, 0.02671591, max_relative = ACCURACY);
+        assert_relative_eq!(model.beta, 7.690945e-4, max_relative = ACCURACY);
+        assert_relative_eq!(model.gamma, 995.6486, max_relative = ACCURACY);
         assert_eq!(model.max_concurrency(), 35);
         assert_relative_eq!(model.max_throughput(), 12341.7454, max_relative = ACCURACY);
         assert!(!model.is_coherency_constrained());
