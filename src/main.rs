@@ -8,6 +8,7 @@ use plotlib::repr::Plot;
 use plotlib::style::{PointMarker, PointStyle};
 use plotlib::view::ContinuousView;
 
+use serde_json;
 use usl::{Measurement, Model};
 
 /// Build and evaluate Universal Scalability Law models.
@@ -40,21 +41,8 @@ fn main() -> Result<()> {
 
 
     let model = Model::build(&measurments);
-    println!("USL parameters: α={:.6}, β={:.6}, γ={:.6}", model.alpha, model.beta, model.gamma);
-    println!(
-        "\tmax throughput: {:.6}, max concurrency: {:.6}",
-        model.max_throughput(),
-        model.max_concurrency(),
-    );
-    if model.is_contention_constrained() {
-        println!("\tcontention constrained");
-    } else if model.is_coherency_constrained() {
-        println!("\tcoherency constrained");
-    } else if model.is_limitless() {
-        println!("\tlinearly scalable");
-    }
-
     if opts.plot {
+        println!("{}", model);
         let observed = measurments.iter().map(|m| (m.n, m.x)).collect::<Vec<(f64, f64)>>();
         let max_n = observed.iter().map(|&(n, _)| n).fold(0.0, f64::max);
         let max_y = observed.iter().map(|&(_, y)| y).fold(0.0, f64::max);
@@ -87,6 +75,9 @@ fn main() -> Result<()> {
             .y_label("throughput");
 
         println!("{}", Page::single(&v).dimensions(200, 20).to_text().unwrap());
+    } else {
+        let json = serde_json::to_string(&model)?;
+        println!("{}", json);
     }
 
     for n in opts.predictions {

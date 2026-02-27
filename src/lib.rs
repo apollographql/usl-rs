@@ -31,11 +31,12 @@
     clippy::needless_borrow
 )]
 
-use std::iter::FromIterator;
+use std::{fmt::Display, iter::FromIterator};
 use std::time::Duration;
 
 use approx::relative_eq;
 use rmpfit::{MPFitter, MPResult};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 
 /// A simultaneous measurement of at least two of the parameters of Little's Law: concurrency,
 /// throughput, and latency. The third parameter is inferred from the other two.
@@ -112,6 +113,31 @@ from_tuple!(u32, f64, Measurement::concurrency_and_throughput);
 from_tuple!(u32, Duration, Measurement::concurrency_and_latency);
 from_tuple!(f64, Duration, Measurement::throughput_and_latency);
 
+/// Constraint kind experienced by a system.
+#[derive(Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize)]
+pub enum Constraint {
+    /// System is contention constrained.
+    Contention,
+    /// System is coherency constrained.
+    Coherency,
+    /// System is limitless.
+    Limitless,
+    /// System constraints are undetermined.
+    Undetermined
+}
+
+impl Display for Constraint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Constraint::Contention => write!(f, "contention"),
+            Constraint::Coherency => write!(f, "coherency"),
+            Constraint::Limitless => write!(f, "limitless"),
+            Constraint::Undetermined => write!(f, "undetermined"),
+        }
+    }
+}
+
 /// A Universal Scalability Law model.
 ///
 /// Can be built from an explicit slice of [Measurement] instances via [Model::build] or via
@@ -128,6 +154,7 @@ from_tuple!(f64, Duration, Measurement::throughput_and_latency);
 /// ].iter().collect();
 /// ```
 #[derive(Debug, Copy, Clone)]
+#[derive(Deserialize)]
 pub struct Model {
     /// The model's coefficient of contention, α.
     pub alpha: f64,
@@ -135,6 +162,29 @@ pub struct Model {
     pub beta: f64,
     /// The model's coefficient of concurrency, γ.
     pub gamma: f64,
+}
+
+impl Display for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "USL parameters: α={:.6}, β={:.6}, γ={:.6}", self.alpha, self.beta, self.gamma)?;
+        writeln!(f, "\tmax throughput: {:.6}, max concurrency: {:.6}", self.max_throughput(), self.max_concurrency())?;
+        writeln!(f, "\tconstrained by: {}", self.constrained_by())
+    }
+}
+
+impl Serialize for Model {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        let mut s = serializer.serialize_struct("Model", 6)?;
+        s.serialize_field("coef_contention", &self.alpha)?;
+        s.serialize_field("coef_coherency", &self.beta)?;
+        s.serialize_field("coef_concurrency", &self.gamma)?;
+        s.serialize_field("max_throughput", &self.max_throughput())?;
+        s.serialize_field("max_concurrency", &self.max_concurrency())?;
+        s.serialize_field("constraint_by", &self.constrained_by())?;
+        s.end()
+    }
 }
 
 /// The minimum number of measurements required to build a model.
@@ -252,6 +302,20 @@ impl Model {
     #[must_use]
     pub fn is_limitless(&self) -> bool {
         relative_eq!(self.beta, 0.0)
+    }
+
+    /// Return how the current system is constrained (coherency, contention, or limitless).
+    #[must_use]
+    pub fn constrained_by(&self) -> Constraint {
+        if self.is_contention_constrained() {
+            Constraint::Contention 
+        } else if self.is_coherency_constrained() {
+            Constraint::Coherency 
+        } else if self.is_limitless() {
+            Constraint::Limitless
+        } else {
+            Constraint::Undetermined
+        }
     }
 }
 
