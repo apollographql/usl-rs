@@ -41,11 +41,47 @@ Now you can build a model and begin estimating things.
 ### As A CLI Tool
 
 ```
-cargo install usl --features=cli
-```
+usl builds Universal Scalability Law models from sets of observed measurements.
 
+Usage: usl [OPTIONS] <INPUT>
+
+Arguments:
+  <INPUT>
+          Path to input CSV file
+
+Options:
+  -k, --kind <KIND>
+          Specify which two parameters are supplied in the input CSV (the third parameter will be derived using Little's Law)
+          
+          [default: concurrency-and-throughput]
+
+          Possible values:
+          - concurrency-and-throughput: System's throughput at a given level of concurrency
+          - concurrency-and-latency:    System's latency at a given level of concurrency
+          - throughput-and-latency:     System's latency at a given level of throughput
+
+  -o, --output <OUTPUT>
+          Output format for the model's result
+          
+          [default: text]
+
+          Possible values:
+          - text: Print the model as text
+          - json: Print the model as JSON
+          - plot: Show a plot of the provided and modeled data
+
+  -p, --predictions <PREDICTIONS>...
+          Predict the throughput at the given concurrency levels
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 ```
-$ cat measurements.csv
+The measurements file is a CSV with two of the three Little's Law parameters. 
+```
+$ cat example.csv
 1,65
 18,996
 36,1652
@@ -54,35 +90,36 @@ etc.
 ```
 
 ```
-usl --plot example.csv 10 50 100 150 200 250 300
+usl -o plot example.csv 10 50 100 150 200 250 300
 
 USL parameters: α=0.028168, β=0.000104, γ=90.691376
-	max throughput: 1882.421555, max concurrency: 96
-	contention constrained
-        |                         ■   ●     × ●       ●                                 
-        |                     ●                ■            ■● ×     ●                  
-        |           ■     ×                                                  ●   ×   ● ■
-   1600-|              ●                                                                
-        |                                                                               
- t      |                                                                               
- h      |                                                                               
- r 1200-|      ●                                                                        
- o      |                                                                               
- u      |     ■                                                                         
- g      |                                                                               
- h      |                                                                               
- p  800-|  ×                                                                            
- u      |                                                                               
- t      |                                                                               
-        |                                                                               
-    400-|                                                                               
-        |                                                                               
-        |                                                                               
-        |                                                                               
-      0+-------------------------------------------------------------------------------- 
-       |              |              |             |              |              |       
-       0             40             80            120            160            200      
-                                         concurrency                                     
+        max throughput: 1882.421555, max concurrency: 96
+        constrained by: contention
+
+        |                           ●   ■     ●      ×  ●■       ●         ●×                               
+        |                     ×                                           ■          ●         ●            
+        |               ■ ●                                                                         ×   ●  ■
+   1600-|                                                                                                   
+        |                                                                                                   
+ t      |                                                                                                   
+ h      |                                                                                                   
+ r 1200-|        ●                                                                                          
+ o      |                                                                                                   
+ u      |      ■                                                                                            
+ g      |                                                                                                   
+ h  800-|                                                                                                   
+ p      |   ×                                                                                               
+ u      |                                                                                                   
+ t      |                                                                                                   
+        |                                                                                                   
+    400-|                                                                                                   
+        |                                                                                                   
+        |                                                                                                   
+        |                                                                                                   
+      0+---------------------------------------------------------------------------------------------------- 
+       |                  |                 |                  |                 |                  |        
+       0                 40                80                 120               160                200       
+                                                   concurrency                                               
 10,718.1341832148264
 50,1720.7701516725795
 100,1881.977293350178
