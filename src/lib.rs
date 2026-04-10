@@ -168,6 +168,7 @@ impl Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "USL parameters: α={:.6}, β={:.6}, γ={:.6}", self.alpha, self.beta, self.gamma)?;
         writeln!(f, "\tmax throughput: {:.6}, max concurrency: {:.6}", self.max_throughput(), self.max_concurrency())?;
+        writeln!(f, "\toptimal throughput: {:.6}, optimal concurrency: {:.6}", self.optimal_throughput(), self.optimal_concurrency())?;
         writeln!(f, "\tconstrained by: {}", self.constrained_by())
     }
 }
@@ -182,6 +183,8 @@ impl Serialize for Model {
         s.serialize_field("coef_concurrency", &self.gamma)?;
         s.serialize_field("max_throughput", &self.max_throughput())?;
         s.serialize_field("max_concurrency", &self.max_concurrency())?;
+        s.serialize_field("opt_throughput", &self.optimal_throughput())?;
+        s.serialize_field("opt_concurrency", &self.optimal_concurrency())?;
         s.serialize_field("constraint_by", &self.constrained_by())?;
         s.end()
     }
@@ -241,6 +244,18 @@ impl Model {
     #[must_use]
     pub fn max_throughput(&self) -> f64 {
         self.throughput_at_concurrency(self.max_concurrency())
+    }
+
+    /// Calculate the optimal number of concurrent events the system can handle, `N{opt}`.
+    #[must_use]
+    pub fn optimal_concurrency(&self) -> u32 {
+        (1.0/self.alpha).ceil() as u32
+    }
+
+    /// Calculate the optimal expected throughput for optimal concurrency, `X{opt}`.
+    #[must_use]
+    pub fn optimal_throughput(&self) -> f64 {
+        self.throughput_at_concurrency(self.optimal_concurrency())
     }
 
     /// Calculate the expected mean latency given a throughput, `R(X)`.
