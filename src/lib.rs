@@ -32,7 +32,6 @@
 )]
 
 use std::{fmt::Display, iter::FromIterator};
-use std::time::Duration;
 
 use approx::relative_eq;
 use rmpfit::{MPFitter, MPResult};
@@ -41,20 +40,13 @@ use serde::{Deserialize, Serialize, ser::SerializeStruct};
 /// A simultaneous measurement of at least two of the parameters of Little's Law: concurrency,
 /// throughput, and latency. The third parameter is inferred from the other two.
 ///
-/// [Measurement] instances can be created from pairs of dimensional types: `u32` for the number of
-/// concurrent events, `f64` for the average rate of events, and `Duration` for the average duration
-/// of events:
-///
 /// ```
 /// use usl::Measurement;
-/// use std::time::Duration;
 ///
-/// let m: Measurement = (30, 1000.0).into();
-/// let m: Measurement = (1000.0, 30).into();
-/// let m: Measurement = (30, Duration::from_millis(200)).into();
-/// let m: Measurement = (Duration::from_millis(200), 30).into();
-/// let m: Measurement = (1000.0, Duration::from_millis(200)).into();
-/// let m: Measurement = (Duration::from_millis(200), 1000.0).into();
+/// let m = Measurement::concurrency_and_throughput(30, 1000.0);
+/// let m = Measurement::concurrency_and_throughput(30.5, 1000.0);
+/// let m = Measurement::concurrency_and_latency(30, 0.2);
+/// let m = Measurement::throughput_and_latency(1000.0, 0.2);
 /// ```
 #[derive(Debug, Copy, Clone)]
 pub struct Measurement {
@@ -67,51 +59,29 @@ pub struct Measurement {
 }
 
 impl Measurement {
-    /// Create a measurement of a system's latency at a given level of concurrency. The throughput
-    /// of the system is derived via Little's Law.
+    /// Create a measurement of a system's latency (in seconds) at a given level of concurrency.
+    /// The throughput of the system is derived via Little's Law.
     #[must_use]
-    pub fn concurrency_and_latency(n: u32, r: Duration) -> Measurement {
+    pub fn concurrency_and_latency(n: impl Into<f64>, r: f64) -> Measurement {
         let n = n.into();
-        let r = r.as_secs_f64();
         Measurement { n, x: n / r, r } // L, γ=L/W, W
     }
 
-    /// Create a measurement of a system's throughput at a given level of concurrency. The latency
-    /// of the system is derived via Little's Law.
+    /// Create a measurement of a system's throughput at a given level of concurrency.
+    /// The latency of the system is derived via Little's Law.
     #[must_use]
-    pub fn concurrency_and_throughput(n: u32, x: f64) -> Measurement {
+    pub fn concurrency_and_throughput(n: impl Into<f64>, x: f64) -> Measurement {
         let n = n.into();
         Measurement { n, x, r: n / x } // L, γ, W=L/γ
     }
 
-    /// Create a measurement of a system's latency at a given level of throughput. The concurrency
-    /// of the system is derived via Little's Law.
+    /// Create a measurement of a system's latency (in seconds) at a given level of throughput.
+    /// The concurrency of the system is derived via Little's Law.
     #[must_use]
-    pub fn throughput_and_latency(x: f64, r: Duration) -> Measurement {
-        let r = r.as_secs_f64();
+    pub fn throughput_and_latency(x: f64, r: f64) -> Measurement {
         Measurement { n: x * r, x, r } // L=γW, γ, W
     }
 }
-
-macro_rules! from_tuple {
-    ($a:ty, $b:ty, $f:expr) => {
-        impl From<($a, $b)> for Measurement {
-            fn from(v: ($a, $b)) -> Self {
-                $f(v.0, v.1)
-            }
-        }
-
-        impl From<($b, $a)> for Measurement {
-            fn from(v: ($b, $a)) -> Self {
-                $f(v.1, v.0)
-            }
-        }
-    };
-}
-
-from_tuple!(u32, f64, Measurement::concurrency_and_throughput);
-from_tuple!(u32, Duration, Measurement::concurrency_and_latency);
-from_tuple!(f64, Duration, Measurement::throughput_and_latency);
 
 /// Constraint kind experienced by a system.
 #[derive(Debug, Clone, Copy)]
@@ -141,17 +111,18 @@ impl Display for Constraint {
 /// A Universal Scalability Law model.
 ///
 /// Can be built from an explicit slice of [Measurement] instances via [Model::build] or via
-/// `collect` on an iterator of [Measurement] instances or measurement tuples:
+/// `collect` on an iterator of [Measurement] instances:
 ///
 /// ```
-/// let m: usl::Model = vec![
-///     (10, 30.0),
-///     (20, 80.0),
-///     (30, 100.0),
-///     (40, 140.0),
-///     (50, 160.0),
-///     (60, 222.0),
-/// ].iter().collect();
+/// use usl::{Model, Measurement};
+/// let m: Model = vec![
+///     Measurement::concurrency_and_throughput(10, 30.0),
+///     Measurement::concurrency_and_throughput(20, 80.0),
+///     Measurement::concurrency_and_throughput(30, 100.0),
+///     Measurement::concurrency_and_throughput(40, 140.0),
+///     Measurement::concurrency_and_throughput(50, 160.0),
+///     Measurement::concurrency_and_throughput(60, 222.0),
+/// ].into_iter().collect();
 /// ```
 #[derive(Debug, Copy, Clone)]
 #[derive(Deserialize)]
@@ -218,8 +189,8 @@ impl Model {
     ///
     /// See "Practical Scalability Analysis with the Universal Scalability Law, Equation 3".
     #[must_use]
-    pub fn throughput_at_concurrency(&self, n: u32) -> f64 {
-        let n: f64 = n.into();
+    pub fn throughput_at_concurrency(&self, n: impl Into<f64>) -> f64 {
+        let n = n.into();
         (self.gamma * n) / (1.0 + (self.alpha * (n - 1.0)) + (self.beta * n * (n - 1.0)))
     }
 
@@ -227,8 +198,8 @@ impl Model {
     ///
     /// See "Practical Scalability Analysis with the Universal Scalability Law, Equation 6".
     #[must_use]
-    pub fn latency_at_concurrency(&self, n: u32) -> f64 {
-        let n: f64 = n.into();
+    pub fn latency_at_concurrency(&self, n: impl Into<f64>) -> f64 {
+        let n = n.into();
         (1.0 + (self.alpha * (n - 1.0)) + (self.beta * n * (n - 1.0))) / self.gamma
     }
 
@@ -266,12 +237,11 @@ impl Model {
         (self.alpha - 1.0) / (self.alpha * x - self.gamma)
     }
 
-    /// Calculate the expected throughput given a mean latency, `X(R)`.
+    /// Calculate the expected throughput given a mean latency (in seconds), `X(R)`.
     ///
     /// See "Practical Scalability Analysis with the Universal Scalability Law, Equation 9".
     #[must_use]
-    pub fn throughput_at_latency(&self, r: Duration) -> f64 {
-        let r = r.as_secs_f64();
+    pub fn throughput_at_latency(&self, r: f64) -> f64 {
         ((self.alpha.powi(2)
             + self.beta.powi(2)
             + 2.0 * self.beta * (2.0 * self.gamma * r + self.alpha - 2.0))
@@ -285,8 +255,7 @@ impl Model {
     ///
     /// See "Practical Scalability Analysis with the Universal Scalability Law, Equation 10".
     #[must_use]
-    pub fn concurrency_at_latency(&self, r: Duration) -> f64 {
-        let r = r.as_secs_f64();
+    pub fn concurrency_at_latency(&self, r: f64) -> f64 {
         (self.beta - self.alpha
             + (self.alpha.powi(2)
                 + self.beta.powi(2)
@@ -341,24 +310,6 @@ impl FromIterator<Measurement> for Model {
     }
 }
 
-macro_rules! from_iterator {
-    ($a:ty, $b:ty) => {
-        impl<'a> FromIterator<&'a ($a, $b)> for Model {
-            fn from_iter<T: IntoIterator<Item = &'a ($a, $b)>>(iter: T) -> Self {
-                let measurements: Vec<Measurement> = iter.into_iter().map(|&m| m.into()).collect();
-                Model::build(&measurements)
-            }
-        }
-    };
-}
-
-from_iterator!(u32, f64);
-from_iterator!(f64, u32);
-from_iterator!(Duration, u32);
-from_iterator!(u32, Duration);
-from_iterator!(f64, Duration);
-from_iterator!(Duration, f64);
-
 struct ModelFitter(Vec<Measurement>);
 
 impl ModelFitter {
@@ -371,7 +322,7 @@ impl MPFitter for ModelFitter {
     fn eval(&self, params: &[f64], deviates: &mut [f64]) -> MPResult<()> {
         let model = Model { alpha: params[0], beta: params[1], gamma: params[2] };
         for (d, m) in deviates.iter_mut().zip(self.0.iter()) {
-            *d = m.x - model.throughput_at_concurrency(m.n as u32);
+            *d = m.x - model.throughput_at_concurrency(m.n);
         }
         Ok(())
     }
@@ -389,7 +340,7 @@ mod tests {
 
     #[test]
     fn measurement() {
-        let m = Measurement::concurrency_and_latency(3, Duration::from_millis(600));
+        let m = Measurement::concurrency_and_latency(3, 0.6);
         assert_relative_eq!(m.n, 3.0);
         assert_relative_eq!(m.r, 0.6);
         assert_relative_eq!(m.x, 5.0);
@@ -399,7 +350,7 @@ mod tests {
         assert_relative_eq!(m.r, 0.6);
         assert_relative_eq!(m.x, 5.0);
 
-        let m = Measurement::throughput_and_latency(5.0, Duration::from_millis(600));
+        let m = Measurement::throughput_and_latency(5.0, 0.6);
         assert_relative_eq!(m.n, 3.0);
         assert_relative_eq!(m.r, 0.6);
         assert_relative_eq!(m.x, 5.0);
@@ -408,7 +359,11 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn build() {
-        let model: Model = MEASUREMENTS.iter().collect();
+        let measurements: Vec<Measurement> = MEASUREMENTS
+            .iter()
+            .map(|&(n, x)| Measurement::concurrency_and_throughput(n, x))
+            .collect();
+        let model = Model::build(&measurements);
 
         assert_relative_eq!(model.alpha, 0.02671591, max_relative = ACCURACY);
         assert_relative_eq!(model.beta, 7.690945e-4, max_relative = ACCURACY);
@@ -432,15 +387,15 @@ mod tests {
         assert_relative_eq!(model.concurrency_at_throughput(12201.0), 17.732208293896793);
 
         assert_relative_eq!(
-            model.throughput_at_latency(Duration::from_millis(30)),
+            model.throughput_at_latency(0.030),
             7047.844027581335
         );
         assert_relative_eq!(
-            model.throughput_at_latency(Duration::from_millis(40)),
+            model.throughput_at_latency(0.040),
             6056.536321602774
         );
         assert_relative_eq!(
-            model.throughput_at_latency(Duration::from_millis(50)),
+            model.throughput_at_latency(0.050),
             5387.032125730636
         );
 
@@ -449,15 +404,15 @@ mod tests {
         assert_relative_eq!(model.latency_at_throughput(5000.0), 0.0011290093731056857);
 
         assert_relative_eq!(
-            model.concurrency_at_latency(Duration::from_millis(30)),
+            model.concurrency_at_latency(0.030),
             177.69840792284043
         );
         assert_relative_eq!(
-            model.concurrency_at_latency(Duration::from_millis(40)),
+            model.concurrency_at_latency(0.040),
             208.52453995951137
         );
         assert_relative_eq!(
-            model.concurrency_at_latency(Duration::from_millis(50)),
+            model.concurrency_at_latency(0.050),
             235.61469338193223
         );
     }

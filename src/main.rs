@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Parser, ValueEnum, ValueHint};
@@ -71,7 +70,7 @@ fn main() -> Result<()> {
 
             let predicted = (0..(max_n as usize))
                 .step_by(max_n as usize / 10)
-                .map(|n| (n as f64, model.throughput_at_concurrency(n as u32)))
+                .map(|n| (n as f64, model.throughput_at_concurrency(n as f64)))
                 .collect();
             let predicted =
                 Plot::new(predicted).point_style(PointStyle::new().marker(PointMarker::Circle));
@@ -110,17 +109,17 @@ fn read_measurements(path: &PathBuf, kind: MeasurementKind) -> Result<Vec<Measur
     let mut input = csv::Reader::from_path(path)?;
     for record in input.records() {
         let record = record?;
+        let record_0 = record[0].parse()?;
+        let record_1 = record[1].parse()?;
         let m = match kind {
             MeasurementKind::ConcurrencyAndThroughput => {
-                Measurement::concurrency_and_throughput(record[0].parse()?, record[1].parse()?)
+                Measurement::concurrency_and_throughput(record_0, record_1)
             }
             MeasurementKind::ConcurrencyAndLatency => Measurement::concurrency_and_latency(
-                record[0].parse()?,
-                Duration::from_millis(record[1].parse()?),
+                record_0, record_1
             ),
             MeasurementKind::ThroughputAndLatency => Measurement::throughput_and_latency(
-                record[0].parse()?,
-                Duration::from_millis(record[1].parse()?),
+                record_0, record_1
             ),
         };
         measurements.push(m);
