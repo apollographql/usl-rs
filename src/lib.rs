@@ -138,8 +138,9 @@ pub struct Model {
 impl Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "USL parameters: α={:.6}, β={:.6}, γ={:.6}", self.alpha, self.beta, self.gamma)?;
-        writeln!(f, "\tmax throughput: {:.6}, max concurrency: {:.6}", self.max_throughput(), self.max_concurrency())?;
-        writeln!(f, "\toptimal throughput: {:.6}, optimal concurrency: {:.6}", self.optimal_throughput(), self.optimal_concurrency())?;
+        writeln!(f, "\tlimit throughput: {:.6} (Amdahl asymptote)", self.limit_throughput())?;
+        writeln!(f, "\tpeak  throughput: {:.6}, peak concurrency: {:.6}", self.max_throughput(), self.max_concurrency())?;
+        writeln!(f, "\topt   throughput: {:.6}, opt concurrency: {:.6}", self.optimal_throughput(), self.optimal_concurrency())?;
         writeln!(f, "\tconstrained by: {}", self.constrained_by())
     }
 }
@@ -148,7 +149,7 @@ impl Serialize for Model {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer {
-        let mut s = serializer.serialize_struct("Model", 6)?;
+        let mut s = serializer.serialize_struct("Model", 9)?;
         s.serialize_field("coef_contention", &self.alpha)?;
         s.serialize_field("coef_coherency", &self.beta)?;
         s.serialize_field("coef_concurrency", &self.gamma)?;
@@ -156,7 +157,8 @@ impl Serialize for Model {
         s.serialize_field("max_concurrency", &self.max_concurrency())?;
         s.serialize_field("opt_throughput", &self.optimal_throughput())?;
         s.serialize_field("opt_concurrency", &self.optimal_concurrency())?;
-        s.serialize_field("constraint_by", &self.constrained_by())?;
+        s.serialize_field("constrained_by", &self.constrained_by())?;
+        s.serialize_field("limit_throughput", &self.limit_throughput())?;
         s.end()
     }
 }
@@ -227,6 +229,18 @@ impl Model {
     #[must_use]
     pub fn optimal_throughput(&self) -> f64 {
         self.throughput_at_concurrency(self.optimal_concurrency())
+    }
+
+    /// Calculate the throughput limit of the system (Amdahl asymptote), `X{roof} = γ / α`.
+    ///
+    /// This is the theoretical upper bound on throughput that the system can never exceed,
+    /// regardless of how much concurrency is applied. It represents the asymptotic limit
+    /// imposed by the serial fraction (contention parameter α).
+    ///
+    /// The limit is undefined (infinite) if α is zero, meaning the system has no contention.
+    #[must_use]
+    pub fn limit_throughput(&self) -> f64 {
+        self.gamma / self.alpha.abs()
     }
 
     /// Calculate the expected mean latency given a throughput, `R(X)`.
@@ -370,6 +384,8 @@ mod tests {
         assert_relative_eq!(model.gamma, 995.6486, max_relative = ACCURACY);
         assert_eq!(model.max_concurrency(), 35);
         assert_relative_eq!(model.max_throughput(), 12341.7454, max_relative = ACCURACY);
+        // limit (Amdahl asymptote): γ / α
+        assert_relative_eq!(model.limit_throughput(), 995.6486 / 0.02671591, max_relative = ACCURACY);
         assert!(!model.is_coherency_constrained());
         assert!(model.is_contention_constrained());
         assert!(!model.is_limitless());
