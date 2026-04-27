@@ -34,7 +34,7 @@
 use std::{fmt::Display, iter::FromIterator};
 
 use approx::relative_eq;
-use rmpfit::{MPFitter, MPResult};
+use rmpfit::{MPFitter, MPPar, MPResult};
 use serde::{Deserialize, Serialize, ser::SerializeStruct};
 
 /// A simultaneous measurement of at least two of the parameters of Little's Law: concurrency,
@@ -181,7 +181,8 @@ impl Model {
         );
         let fitter = ModelFitter(measurements.to_vec());
         let mut params = fitter.init_params();
-        if let Err(err) = fitter.mpfit(&mut params, None, &Default::default()) {
+        let bounds = ModelFitter::bounds();
+        if let Err(err) = fitter.mpfit(&mut params, Some(&bounds), &Default::default()) {
             panic!("lma error: {}", err)
         }
         Model { alpha: params[0], beta: params[1], gamma: params[2] }
@@ -210,7 +211,7 @@ impl Model {
     /// See "Practical Scalability Analysis with the Universal Scalability Law, Equation 4".
     #[must_use]
     pub fn max_concurrency(&self) -> u32 {
-        (((1.0 - self.alpha) / self.beta).abs().sqrt()) as u32 
+        (((1.0 - self.alpha) / self.beta).sqrt()) as u32 
     }
 
     /// Calculate the maximum expected throughput the system can handle, `X{max}`.
@@ -222,7 +223,7 @@ impl Model {
     /// Calculate the optimal number of concurrent events the system can handle, `N{opt}`.
     #[must_use]
     pub fn optimal_concurrency(&self) -> u32 {
-        (1.0/self.alpha).abs().ceil() as u32
+        (1.0/self.alpha).ceil() as u32
     }
 
     /// Calculate the optimal expected throughput for optimal concurrency, `X{opt}`.
@@ -240,7 +241,7 @@ impl Model {
     /// The limit is undefined (infinite) if α is zero, meaning the system has no contention.
     #[must_use]
     pub fn limit_throughput(&self) -> f64 {
-        self.gamma / self.alpha.abs()
+        self.gamma / self.alpha
     }
 
     /// Calculate the expected mean latency given a throughput, `R(X)`.
@@ -327,8 +328,31 @@ impl FromIterator<Measurement> for Model {
 struct ModelFitter(Vec<Measurement>);
 
 impl ModelFitter {
+    // Starting with a smaller β to match R `usl` package's defaults:
+    // α=0.01, β=1e-4, γ=max(X/N)
     fn init_params(&self) -> Vec<f64> {
-        vec![0.1, 0.01, self.0.iter().map(|m| m.x / m.n).fold(f64::NEG_INFINITY, f64::max)]
+        vec![0.01, 1e-4, self.0.iter().map(|m| m.x / m.n).fold(f64::NEG_INFINITY, f64::max)]
+    }
+
+    // α ∈ [0, 1], β ≥ 0, γ ≥ 0. Outside these ranges the coefficients have no
+    // physical meaning in the USL model.
+    fn bounds() -> [MPPar; 3] {
+        let non_negative = || MPPar {
+            limited_low: true,
+            limit_low: 0.0,
+            ..MPPar::default()
+        };
+        [
+            MPPar {
+                limited_low: true,
+                limited_up: true,
+                limit_low: 0.0,
+                limit_up: 1.0,
+                ..MPPar::default()
+            },
+            non_negative(),
+            non_negative(),
+        ]
     }
 }
 
@@ -390,46 +414,46 @@ mod tests {
         assert!(model.is_contention_constrained());
         assert!(!model.is_limitless());
 
-        assert_relative_eq!(model.latency_at_concurrency(1), 0.0010043702162450092);
-        assert_relative_eq!(model.latency_at_concurrency(20), 0.0018077244442155811);
-        assert_relative_eq!(model.latency_at_concurrency(35), 0.002835903510841524);
+        assert_relative_eq!(model.latency_at_concurrency(1), 0.0010043702162450092, max_relative = ACCURACY);
+        assert_relative_eq!(model.latency_at_concurrency(20), 0.0018077244442155811, max_relative = ACCURACY);
+        assert_relative_eq!(model.latency_at_concurrency(35), 0.002835903510841524, max_relative = ACCURACY);
 
-        assert_relative_eq!(model.throughput_at_concurrency(1), 995.648799442353);
-        assert_relative_eq!(model.throughput_at_concurrency(20), 11063.633101824058);
-        assert_relative_eq!(model.throughput_at_concurrency(35), 12341.74571391328);
+        assert_relative_eq!(model.throughput_at_concurrency(1), 995.648799442353, max_relative = ACCURACY);
+        assert_relative_eq!(model.throughput_at_concurrency(20), 11063.633101824058, max_relative = ACCURACY);
+        assert_relative_eq!(model.throughput_at_concurrency(35), 12341.74571391328, max_relative = ACCURACY);
 
-        assert_relative_eq!(model.concurrency_at_throughput(955.0), 0.958099855673978);
-        assert_relative_eq!(model.concurrency_at_throughput(11048.0), 15.35043561102983);
-        assert_relative_eq!(model.concurrency_at_throughput(12201.0), 17.732208293896793);
+        assert_relative_eq!(model.concurrency_at_throughput(955.0), 0.958099855673978, max_relative = ACCURACY);
+        assert_relative_eq!(model.concurrency_at_throughput(11048.0), 15.35043561102983, max_relative = ACCURACY);
+        assert_relative_eq!(model.concurrency_at_throughput(12201.0), 17.732208293896793, max_relative = ACCURACY);
 
         assert_relative_eq!(
             model.throughput_at_latency(0.030),
-            7047.844027581335
+            7047.844027581335, max_relative = ACCURACY
         );
         assert_relative_eq!(
             model.throughput_at_latency(0.040),
-            6056.536321602774
+            6056.536321602774, max_relative = ACCURACY
         );
         assert_relative_eq!(
             model.throughput_at_latency(0.050),
-            5387.032125730636
+            5387.032125730636, max_relative = ACCURACY
         );
 
-        assert_relative_eq!(model.latency_at_throughput(7000.0), 0.0012036103337889738);
-        assert_relative_eq!(model.latency_at_throughput(6000.0), 0.001165116923601453);
-        assert_relative_eq!(model.latency_at_throughput(5000.0), 0.0011290093731056857);
+        assert_relative_eq!(model.latency_at_throughput(7000.0), 0.0012036103337889738, max_relative = ACCURACY);
+        assert_relative_eq!(model.latency_at_throughput(6000.0), 0.001165116923601453, max_relative = ACCURACY);
+        assert_relative_eq!(model.latency_at_throughput(5000.0), 0.0011290093731056857, max_relative = ACCURACY);
 
         assert_relative_eq!(
             model.concurrency_at_latency(0.030),
-            177.69840792284043
+            177.69840792284043, max_relative = ACCURACY
         );
         assert_relative_eq!(
             model.concurrency_at_latency(0.040),
-            208.52453995951137
+            208.52453995951137, max_relative = ACCURACY
         );
         assert_relative_eq!(
             model.concurrency_at_latency(0.050),
-            235.61469338193223
+            235.61469338193223, max_relative = ACCURACY
         );
     }
 
