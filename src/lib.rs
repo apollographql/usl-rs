@@ -210,7 +210,7 @@ impl Model {
     /// See "Practical Scalability Analysis with the Universal Scalability Law, Equation 4".
     #[must_use]
     pub fn max_concurrency(&self) -> u32 {
-        (((1.0 - self.alpha) / self.beta).abs().sqrt()) as u32 
+        (((1.0 - self.alpha) / self.beta).sqrt()) as u32 
     }
 
     /// Calculate the maximum expected throughput the system can handle, `X{max}`.
@@ -222,7 +222,7 @@ impl Model {
     /// Calculate the optimal number of concurrent events the system can handle, `N{opt}`.
     #[must_use]
     pub fn optimal_concurrency(&self) -> u32 {
-        (1.0/self.alpha).abs().ceil() as u32
+        (1.0/self.alpha).ceil() as u32
     }
 
     /// Calculate the optimal expected throughput for optimal concurrency, `X{opt}`.
@@ -240,7 +240,7 @@ impl Model {
     /// The limit is undefined (infinite) if α is zero, meaning the system has no contention.
     #[must_use]
     pub fn limit_throughput(&self) -> f64 {
-        self.gamma / self.alpha.abs()
+        self.gamma / self.alpha
     }
 
     /// Calculate the expected mean latency given a throughput, `R(X)`.
