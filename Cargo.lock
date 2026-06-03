@@ -675,9 +675,9 @@ checksum = "a3f87b73ce11b1619a3c6332f45341e0047173771e8b8b73f87bfeefb7b56244"
 
 [[package]]
 name = "rmpfit"
-version = "0.2.0"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "292ca209f924acb845a877923865db60c7e27b41c5fa532a02fa5601e0f65d37"
+checksum = "064408a837204baa51680b284408af56fde3ebeb5c2942f07c8e91213dbcd474"
 
 [[package]]
 name = "rustc-demangle"
